@@ -1,20 +1,28 @@
 package top.saymzx.easycontrol.app;
 
 import android.app.Activity;
+import android.app.Dialog;
 import android.content.ClipData;
 import android.content.ClipDescription;
 import android.content.Intent;
 import android.os.Bundle;
+import android.util.Pair;
+import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.Toast;
 
+import java.util.ArrayList;
 import java.util.UUID;
 
 import top.saymzx.easycontrol.app.databinding.ActivityDeviceDetailBinding;
+import top.saymzx.easycontrol.app.databinding.ItemLoadingBinding;
+import top.saymzx.easycontrol.app.databinding.ItemScanAddressListBinding;
+import top.saymzx.easycontrol.app.databinding.ItemTextBinding;
 import top.saymzx.easycontrol.app.entity.AppData;
 import top.saymzx.easycontrol.app.entity.Device;
 import top.saymzx.easycontrol.app.helper.MyBroadcastReceiver;
+import top.saymzx.easycontrol.app.helper.PublicTools;
 import top.saymzx.easycontrol.app.helper.ViewTools;
 
 public class DeviceDetailActivity extends Activity {
@@ -24,6 +32,7 @@ public class DeviceDetailActivity extends Activity {
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
+    super.onCreate(savedInstanceState);
     ViewTools.setStatusAndNavBar(this);
     ViewTools.setLocale(this);
     activityDeviceDetailBinding = ActivityDeviceDetailBinding.inflate(this.getLayoutInflater());
@@ -37,7 +46,6 @@ public class DeviceDetailActivity extends Activity {
     drawUI();
     // 设置监听
     setListener();
-    super.onCreate(savedInstanceState);
   }
 
   // 绘制UI
@@ -54,7 +62,6 @@ public class DeviceDetailActivity extends Activity {
     // 预填写参数
     activityDeviceDetailBinding.name.setText(device.name);
     activityDeviceDetailBinding.address.setText(device.address);
-    if (!device.isNetworkDevice()) activityDeviceDetailBinding.address.setEnabled(false);
     activityDeviceDetailBinding.customResolution.setVisibility(device.customResolutionOnConnect ? View.VISIBLE : View.GONE);
     activityDeviceDetailBinding.customResolutionWidth.setText(String.valueOf(device.customResolutionWidth));
     activityDeviceDetailBinding.customResolutionHeight.setText(String.valueOf(device.customResolutionHeight));
@@ -93,11 +100,17 @@ public class DeviceDetailActivity extends Activity {
   // 设置监听
   private void setListener() {
     activityDeviceDetailBinding.backButton.setOnClickListener(v -> finish());
+    activityDeviceDetailBinding.buttonScan.setOnClickListener(v -> scanAddress());
     // 设置确认按钮监听
     activityDeviceDetailBinding.ok.setOnClickListener(v -> {
-      if (device.isNetworkDevice() && String.valueOf(activityDeviceDetailBinding.address.getText()).equals("")) return;
-      device.name = String.valueOf(activityDeviceDetailBinding.name.getText());
-      device.address = String.valueOf(activityDeviceDetailBinding.address.getText());
+      String name = String.valueOf(activityDeviceDetailBinding.name.getText());
+      String address = String.valueOf(activityDeviceDetailBinding.address.getText());
+      if (name.equals("----") || name.equals("") || address.equals("")) {
+        Toast.makeText(this, getString(R.string.toast_config), Toast.LENGTH_SHORT).show();
+        return;
+      }
+      device.name = name;
+      device.address = device.isLinkDevice() ? device.uuid + (address.contains("#") ? ("#" + address.split("#")[1]) : "") : address;
       // 自定义分辨率
       String width = String.valueOf(activityDeviceDetailBinding.customResolutionWidth.getText());
       String height = String.valueOf(activityDeviceDetailBinding.customResolutionHeight.getText());
@@ -115,5 +128,27 @@ public class DeviceDetailActivity extends Activity {
       sendBroadcast(intent);
       finish();
     });
+  }
+
+  // 扫描局域网地址
+  private void scanAddress() {
+    Pair<ItemLoadingBinding, Dialog> loading = ViewTools.createLoading(this);
+    loading.second.show();
+    new Thread(() -> {
+      ArrayList<String> scannedAddresses = PublicTools.scanAddress();
+      loading.second.cancel();
+      AppData.uiHandler.post(() -> {
+        ItemScanAddressListBinding scanAddressListView = ItemScanAddressListBinding.inflate(LayoutInflater.from(this));
+        Dialog dialog = ViewTools.createDialog(this, true, scanAddressListView.getRoot());
+        for (String i : scannedAddresses) {
+          ItemTextBinding text = ViewTools.createTextCard(this, i, () -> {
+            activityDeviceDetailBinding.address.setText(i);
+            dialog.cancel();
+          });
+          scanAddressListView.list.addView(text.getRoot());
+        }
+        dialog.show();
+      });
+    }).start();
   }
 }
